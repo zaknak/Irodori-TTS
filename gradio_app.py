@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime
 from pathlib import Path
+from typing import TypeVar
 
 import gradio as gr
 from huggingface_hub import hf_hub_download
@@ -22,6 +23,72 @@ from irodori_tts.inference_runtime import (
 FIXED_SECONDS = 30.0
 MAX_GRADIO_CANDIDATES = 32
 GRADIO_AUDIO_COLS_PER_ROW = 8
+T = TypeVar("T")
+EMOJI_PALETTE_CATEGORIES: list[tuple[str, list[tuple[str, str]]]] = [
+    (
+        "感情",
+        [
+            ("😭", "泣き"),
+            ("😱", "悲鳴"),
+            ("😆", "喜び"),
+            ("😠", "怒り"),
+            ("😲", "驚き"),
+            ("😟", "心配"),
+            ("🫣", "恥ずかしさ"),
+            ("🙄", "呆れ"),
+            ("😊", "楽しげ"),
+            ("🙏", "懇願"),
+            ("🥴", "酔い"),
+            ("😌", "安堵"),
+            ("🤔", "疑問"),
+        ],
+    ),
+    (
+        "話し方",
+        [
+            ("👂", "囁き"),
+            ("😏", "からかい"),
+            ("🥺", "おどおど"),
+            ("🫶", "優しく"),
+            ("😪", "眠そう"),
+            ("⏩", "早口"),
+            ("🐢", "ゆっくり"),
+            ("😰", "慌て"),
+            ("😖", "苦しげ"),
+        ],
+    ),
+    (
+        "効果音・音声表現",
+        [
+            ("😮‍💨", "吐息"),
+            ("⏸️", "間"),
+            ("🤭", "笑い"),
+            ("🥵", "喘ぎ"),
+            ("📢", "エコー"),
+            ("🌬️", "荒い息"),
+            ("😮", "息をのむ"),
+            ("👅", "舐める音"),
+            ("💋", "リップノイズ"),
+            ("📞", "電話越し"),
+            ("🥤", "飲み込み"),
+            ("🤧", "咳・くしゃみ"),
+            ("😒", "舌打ち"),
+            ("🥱", "あくび"),
+            ("👌", "相槌"),
+            ("🎵", "鼻歌"),
+            ("🤐", "口塞がれ"),
+        ],
+    ),
+]
+
+
+def _append_emoji(text: str | None, emoji: str) -> str:
+    current = "" if text is None else str(text)
+    return f"{current}{emoji}"
+
+
+def _chunked(items: list[T], chunk_size: int) -> list[list[T]]:
+    return [items[i : i + chunk_size] for i in range(0, len(items), chunk_size)]
 
 
 def _default_checkpoint() -> str:
@@ -368,6 +435,16 @@ def build_ui() -> gr.Blocks:
             clear_cache_msg = gr.Textbox(label="Model Status", interactive=False)
 
         text = gr.Textbox(label="Text", lines=4)
+        with gr.Accordion("Emoji Palette", open=False):
+            gr.Markdown("Click an emoji to append it to the end of the text box.")
+            emoji_buttons: list[tuple[gr.Button, str]] = []
+            for category_name, items in EMOJI_PALETTE_CATEGORIES:
+                gr.Markdown(f"**{category_name}**")
+                for row_items in _chunked(items, chunk_size=4):
+                    with gr.Row():
+                        for emoji, label in row_items:
+                            button = gr.Button(f"{emoji} {label}", size="sm")
+                            emoji_buttons.append((button, emoji))
         uploaded_audio = gr.Audio(
             label="Reference Audio Upload (optional, blank = no-reference mode)",
             type="filepath",
@@ -498,6 +575,15 @@ def build_ui() -> gr.Blocks:
             outputs=[clear_cache_msg],
         )
         clear_cache_btn.click(_clear_runtime_cache, outputs=[clear_cache_msg])
+
+        for button, emoji in emoji_buttons:
+            button.click(
+                lambda current_text, token=emoji: _append_emoji(current_text, token),
+                inputs=[text],
+                outputs=[text],
+                queue=False,
+                show_progress="hidden",
+            )
 
     return demo
 
