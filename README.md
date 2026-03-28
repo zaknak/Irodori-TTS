@@ -73,6 +73,14 @@ uv run python gradio_app.py --server-name 0.0.0.0 --server-port 7860
 Then access the UI at `http://localhost:7860`.
 The hosted v2 demo is available at [Aratako/Irodori-TTS-500M-v2-Demo](https://huggingface.co/spaces/Aratako/Irodori-TTS-500M-v2-Demo).
 
+## This Fork
+
+This repository is a controlled fork of the original `Aratako/Irodori-TTS`.
+
+Current fork-specific changes include:
+
+- **WebUI emoji input assist**: The Gradio Web UI includes an emoji palette accordion to help append supported control emojis to the text input. See [docs/WEBUI_EMOJI_PALETTE.md](docs/WEBUI_EMOJI_PALETTE.md) and [docs/EMOJI_ANNOTATIONS.md](docs/EMOJI_ANNOTATIONS.md).
+
 ## Inference
 
 ### CLI
@@ -291,6 +299,7 @@ Irodori-TTS/
 ## License
 
 - **Code**: [MIT License](LICENSE)
+- **Fork Modifications**: This fork remains distributed under the MIT License. Copyright for changes made in this fork belongs to `zaknak`.
 - **Model Weights**: Please refer to the [model card](https://huggingface.co/Aratako/Irodori-TTS-500M-v2) for licensing details
 
 ## Acknowledgments
