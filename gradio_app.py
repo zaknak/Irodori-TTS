@@ -137,6 +137,19 @@ def _parse_optional_float(raw: str | None, label: str) -> float | None:
         raise ValueError(f"{label} must be a float or blank.") from exc
 
 
+def _toggle_optional_float(enabled: bool, value: float, label: str) -> float | None:
+    if not enabled:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{label} must be a float.") from exc
+
+
+def _set_component_interactive(enabled: bool) -> gr.update:
+    return gr.update(interactive=bool(enabled))
+
+
 def _parse_optional_int(raw: str | None, label: str) -> int | None:
     if raw is None:
         return None
@@ -250,10 +263,12 @@ def _run_generation(
     cfg_min_t: float,
     cfg_max_t: float,
     context_kv_cache: bool,
-    truncation_factor_raw: str,
+    speaker_kv_scale_enabled: bool,
+    speaker_kv_scale_value: float,
+    truncation_factor_enabled: bool,
+    truncation_factor_value: float,
     rescale_k_raw: str,
     rescale_sigma_raw: str,
-    speaker_kv_scale_raw: str,
     speaker_kv_min_t_raw: str,
     speaker_kv_max_layers_raw: str,
 ) -> tuple[object, ...]:
@@ -278,10 +293,14 @@ def _run_generation(
         raise ValueError(f"num_candidates must be <= {MAX_GRADIO_CANDIDATES}.")
 
     cfg_scale = _parse_optional_float(cfg_scale_raw, "cfg_scale")
-    truncation_factor = _parse_optional_float(truncation_factor_raw, "truncation_factor")
+    truncation_factor = _toggle_optional_float(
+        truncation_factor_enabled, truncation_factor_value, "truncation_factor"
+    )
     rescale_k = _parse_optional_float(rescale_k_raw, "rescale_k")
     rescale_sigma = _parse_optional_float(rescale_sigma_raw, "rescale_sigma")
-    speaker_kv_scale = _parse_optional_float(speaker_kv_scale_raw, "speaker_kv_scale")
+    speaker_kv_scale = _toggle_optional_float(
+        speaker_kv_scale_enabled, speaker_kv_scale_value, "speaker_kv_scale"
+    )
     speaker_kv_min_t = _parse_optional_float(speaker_kv_min_t_raw, "speaker_kv_min_t")
     speaker_kv_max_layers = _parse_optional_int(speaker_kv_max_layers_raw, "speaker_kv_max_layers")
     seed = _parse_optional_int(seed_raw, "seed")
@@ -391,38 +410,38 @@ def build_ui() -> gr.Blocks:
     model_precision_choices = _precision_choices_for_device(default_model_device)
     codec_precision_choices = _precision_choices_for_device(default_codec_device)
 
-    with gr.Blocks(title="Irodori-TTS Gradio") as demo:
-        gr.Markdown("# Irodori-TTS Inference (Cached Runtime)")
+    with gr.Blocks(title="Irodori-TTS WebUI") as demo:
+        gr.Markdown("# Irodori-TTS 推論 WebUI")
         gr.Markdown(
-            "When settings are unchanged, runtime is reused and only sampling/decoding runs."
+            "設定が変わらない場合は runtime を再利用し、sampling / decoding のみを実行します。"
         )
 
         with gr.Row():
             checkpoint = gr.Textbox(
-                label="Checkpoint (.pt/.safetensors or HF repo id)",
+                label="Checkpoint（.pt/.safetensors または HF repo id）",
                 value=default_checkpoint,
                 scale=4,
             )
             model_device = gr.Dropdown(
-                label="Model Device",
+                label="Model Device（実行デバイス）",
                 choices=device_choices,
                 value=default_model_device,
                 scale=1,
             )
             model_precision = gr.Dropdown(
-                label="Model Precision",
+                label="Model Precision（演算精度）",
                 choices=model_precision_choices,
                 value=model_precision_choices[0],
                 scale=1,
             )
             codec_device = gr.Dropdown(
-                label="Codec Device",
+                label="Codec Device（実行デバイス）",
                 choices=device_choices,
                 value=default_codec_device,
                 scale=1,
             )
             codec_precision = gr.Dropdown(
-                label="Codec Precision",
+                label="Codec Precision（演算精度）",
                 choices=codec_precision_choices,
                 value=codec_precision_choices[0],
                 scale=1,
@@ -430,13 +449,13 @@ def build_ui() -> gr.Blocks:
             enable_watermark = gr.State(False)
 
         with gr.Row():
-            load_model_btn = gr.Button("Load Model")
-            clear_cache_btn = gr.Button("Unload Model")
-            clear_cache_msg = gr.Textbox(label="Model Status", interactive=False)
+            load_model_btn = gr.Button("モデルを読み込む")
+            clear_cache_btn = gr.Button("モデルをアンロード")
+            clear_cache_msg = gr.Textbox(label="Model Status（状態）", interactive=False)
 
-        text = gr.Textbox(label="Text", lines=4)
-        with gr.Accordion("Emoji Palette", open=False):
-            gr.Markdown("Click an emoji to append it to the end of the text box.")
+        text = gr.Textbox(label="Text（入力テキスト）", lines=4)
+        with gr.Accordion("絵文字パレット", open=False):
+            gr.Markdown("絵文字をクリックすると、Text の末尾に追加されます。")
             emoji_buttons: list[tuple[gr.Button, str]] = []
             for category_name, items in EMOJI_PALETTE_CATEGORIES:
                 gr.Markdown(f"**{category_name}**")
@@ -445,12 +464,57 @@ def build_ui() -> gr.Blocks:
                         for emoji, label in row_items:
                             button = gr.Button(f"{emoji} {label}", size="sm")
                             emoji_buttons.append((button, emoji))
-        uploaded_audio = gr.Audio(
-            label="Reference Audio Upload (optional, blank = no-reference mode)",
-            type="filepath",
-        )
 
-        with gr.Accordion("Sampling", open=True):
+        with gr.Accordion("🎭 感情スタイル", open=True):
+            with gr.Row():
+                cfg_scale_text = gr.Slider(
+                    label="CFG Scale Text（テキスト表現力）",
+                    minimum=0.0,
+                    maximum=10.0,
+                    value=3.0,
+                    step=0.1,
+                    info="上げるとテキスト由来の感情や抑揚が出やすくなり、下げると反応が穏やかになります。",
+                )
+                cfg_scale_speaker = gr.Slider(
+                    label="CFG Scale Speaker（感情の強さ）",
+                    minimum=0.0,
+                    maximum=10.0,
+                    value=5.0,
+                    step=0.1,
+                    info="上げると参照音声の感情や話し方の影響が強まり、下げると影響が弱くなります。",
+                )
+            with gr.Row():
+                speaker_kv_scale_enabled = gr.Checkbox(
+                    label="Speaker KV Scale を有効化",
+                    value=False,
+                    info="OFF で無効化し、ON のときだけ Speaker KV Scale を適用します。",
+                )
+                speaker_kv_scale_value = gr.Slider(
+                    label="Speaker KV Scale（話者密着度）",
+                    minimum=0.1,
+                    maximum=5.0,
+                    value=1.0,
+                    step=0.1,
+                    info="上げると参照話者への密着が強まり、下げると自由度が増します。",
+                    interactive=False,
+                )
+            with gr.Row():
+                truncation_factor_enabled = gr.Checkbox(
+                    label="Truncation Factor を有効化",
+                    value=False,
+                    info="OFF で無効化し、ON のときだけ Truncation Factor を適用します。",
+                )
+                truncation_factor_value = gr.Slider(
+                    label="Truncation Factor（表現の振れ幅）",
+                    minimum=0.7,
+                    maximum=1.2,
+                    value=0.7,
+                    step=0.05,
+                    info="下げると出力が安定して平坦寄りになり、上げると表現の揺れや勢いが増します。",
+                    interactive=False,
+                )
+
+        with gr.Accordion("Sampling（生成設定）", open=True):
             with gr.Row():
                 num_steps = gr.Slider(label="Num Steps", minimum=1, maximum=120, value=40, step=1)
                 num_candidates = gr.Slider(
@@ -460,7 +524,7 @@ def build_ui() -> gr.Blocks:
                     value=1,
                     step=1,
                 )
-                seed_raw = gr.Textbox(label="Seed (blank=random)", value="")
+                seed_raw = gr.Textbox(label="Seed（空欄で random）", value="")
 
             with gr.Row():
                 cfg_guidance_mode = gr.Dropdown(
@@ -468,39 +532,35 @@ def build_ui() -> gr.Blocks:
                     choices=["independent", "joint", "alternating"],
                     value="independent",
                 )
-                cfg_scale_text = gr.Slider(
-                    label="CFG Scale Text",
-                    minimum=0.0,
-                    maximum=10.0,
-                    value=3.0,
-                    step=0.1,
-                )
-                cfg_scale_speaker = gr.Slider(
-                    label="CFG Scale Speaker",
-                    minimum=0.0,
-                    maximum=10.0,
-                    value=5.0,
-                    step=0.1,
-                )
 
-        with gr.Accordion("Advanced (Optional)", open=False):
-            cfg_scale_raw = gr.Textbox(label="CFG Scale Override (optional)", value="")
+        with gr.Accordion("Advanced（任意）", open=False):
+            cfg_scale_raw = gr.Textbox(label="CFG Scale Override（任意）", value="")
             with gr.Row():
                 cfg_min_t = gr.Number(label="CFG Min t", value=0.5)
                 cfg_max_t = gr.Number(label="CFG Max t", value=1.0)
-                context_kv_cache = gr.Checkbox(label="Context KV Cache", value=True)
+                context_kv_cache = gr.Checkbox(label="Context KV Cache（高速化）", value=True)
             with gr.Row():
-                truncation_factor_raw = gr.Textbox(label="Truncation Factor (optional)", value="")
-                rescale_k_raw = gr.Textbox(label="Rescale k (optional)", value="")
-                rescale_sigma_raw = gr.Textbox(label="Rescale sigma (optional)", value="")
+                rescale_k_raw = gr.Textbox(label="Rescale k（任意）", value="")
+                rescale_sigma_raw = gr.Textbox(label="Rescale sigma（任意）", value="")
             with gr.Row():
-                speaker_kv_scale_raw = gr.Textbox(label="Speaker KV Scale (optional)", value="")
-                speaker_kv_min_t_raw = gr.Textbox(label="Speaker KV Min t (optional)", value="0.9")
+                speaker_kv_min_t_raw = gr.Textbox(
+                    label="Speaker KV Min t（任意）",
+                    value="0.9",
+                    info="Speaker KV Scale > 0 のときだけ効く補助設定です。小さくすると密着の効く時間帯が短くなります。",
+                )
                 speaker_kv_max_layers_raw = gr.Textbox(
-                    label="Speaker KV Max Layers (optional)", value=""
+                    label="Speaker KV Max Layers（任意）",
+                    value="",
+                    info="Speaker KV Scale > 0 のときだけ効く補助設定です。指定すると先頭からその層数までに限定します。",
                 )
 
-        generate_btn = gr.Button("Generate", variant="primary")
+        with gr.Accordion("Reference Audio（任意）", open=False):
+            uploaded_audio = gr.Audio(
+                label="Reference Audio Upload（任意、空欄で no-reference mode）",
+                type="filepath",
+            )
+
+        generate_btn = gr.Button("音声を生成", variant="primary")
 
         out_audios: list[gr.Audio] = []
         num_rows = (
@@ -515,14 +575,14 @@ def build_ui() -> gr.Blocks:
                             break
                         out_audios.append(
                             gr.Audio(
-                                label=f"Generated Audio {i + 1}",
+                                label=f"生成結果 {i + 1}",
                                 type="filepath",
                                 interactive=False,
                                 visible=(i == 0),
                                 min_width=160,
                             )
                         )
-        out_log = gr.Textbox(label="Run Log", lines=8)
+        out_log = gr.Textbox(label="Run Log（実行詳細）", lines=8)
         out_timing = gr.Textbox(label="Timing", lines=8)
 
         generate_btn.click(
@@ -546,10 +606,12 @@ def build_ui() -> gr.Blocks:
                 cfg_min_t,
                 cfg_max_t,
                 context_kv_cache,
-                truncation_factor_raw,
+                speaker_kv_scale_enabled,
+                speaker_kv_scale_value,
+                truncation_factor_enabled,
+                truncation_factor_value,
                 rescale_k_raw,
                 rescale_sigma_raw,
-                speaker_kv_scale_raw,
                 speaker_kv_min_t_raw,
                 speaker_kv_max_layers_raw,
             ],
@@ -560,6 +622,16 @@ def build_ui() -> gr.Blocks:
         )
         codec_device.change(
             _on_codec_device_change, inputs=[codec_device], outputs=[codec_precision]
+        )
+        truncation_factor_enabled.change(
+            _set_component_interactive,
+            inputs=[truncation_factor_enabled],
+            outputs=[truncation_factor_value],
+        )
+        speaker_kv_scale_enabled.change(
+            _set_component_interactive,
+            inputs=[speaker_kv_scale_enabled],
+            outputs=[speaker_kv_scale_value],
         )
 
         load_model_btn.click(

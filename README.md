@@ -80,6 +80,7 @@ This repository is a controlled fork of the original `Aratako/Irodori-TTS`.
 Current fork-specific changes include:
 
 - **WebUI emoji input assist**: The Gradio Web UI includes an emoji palette accordion to help append supported control emojis to the text input. See [docs/WEBUI_EMOJI_PALETTE.md](docs/WEBUI_EMOJI_PALETTE.md) and [docs/EMOJI_ANNOTATIONS.md](docs/EMOJI_ANNOTATIONS.md).
+- **WebUI Japanese copy polish**: The Gradio Web UI uses restrained Japanese localization for user-facing copy while keeping inference parameter names recognizable. See [docs/WEBUI_JA_COPY_GUIDELINES.md](docs/WEBUI_JA_COPY_GUIDELINES.md).
 
 ## Inference
 
